@@ -285,29 +285,62 @@ EOF
 	# Editing qBittorrent settings
     systemctl stop qbittorrent-nox@$username
 
-    if [[ "${qb_ver}" =~ "4.1." ]]; then
+    if [[ "${qb_ver}" =~ "5.1." ]]; then
         md5password=$(echo -n $password | md5sum | awk '{print $1}')
         cat << EOF >/home/$username/.config/qBittorrent/qBittorrent.conf
+[Application]
+FileLogger\Age=1
+FileLogger\AgeType=1
+FileLogger\Backup=true
+FileLogger\DeleteOld=true
+FileLogger\Enabled=true
+FileLogger\MaxSizeBytes=66560
+FileLogger\Path=/home/admin/.local/share/qBittorrent/logs
+
 [BitTorrent]
-Session\AsyncIOThreadsCount=$aio
-Session\SendBufferLowWatermark=$low_buffer
-Session\SendBufferWatermark=$buffer
-Session\SendBufferWatermarkFactor=$buffer_factor
+Session\ConnectionSpeed=9000
+Session\DiskQueueSize=10485760
+Session\ExcludedFileNames=
+Session\FilePoolSize=10000
+Session\MaxConnections=50000
+Session\MaxConnectionsPerTorrent=10000
+Session\MaxUploads=20000
+Session\MaxUploadsPerTorrent=4000
+Session\PeerTurnover=10
+Session\PeerTurnoverCutOff=30
+Session\PeerTurnoverInterval=30
+Session\Port=44122
+Session\QueueingSystemEnabled=false
+Session\RequestQueueSize=5000
+Session\SSL\Port=60703
+Session\SSRFMitigation=false
+Session\SuggestMode=true
+Session\ValidateHTTPSTrackerCertificate=false
+
+[Core]
+AutoDeleteAddedTorrentFile=Never
 
 [LegalNotice]
 Accepted=true
 
-[Network]
-Cookies=@Invalid()
+[Meta]
+MigrationVersion=8
 
 [Preferences]
-Connection\PortRangeMin=$qb_incoming_port
-Downloads\DiskWriteCacheSize=$qb_cache
-Downloads\SavePath=/home/$username/qbittorrent/Downloads/
-Queueing\QueueingEnabled=false
-WebUI\Password_ha1=@ByteArray($md5password)
-WebUI\Port=$qb_port
-WebUI\Username=$username
+Connection\ResolvePeerCountries=false
+General\Locale=zh_CN
+MailNotification\req_auth=true
+WebUI\AuthSubnetWhitelist=@Invalid()
+WebUI\CSRFProtection=false
+WebUI\ClickjackingProtection=false
+WebUI\HostHeaderValidation=false
+WebUI\Password_PBKDF2="@ByteArray(klcE8vbtUzDphRZ5MSj5fQ==:5kpWpt5grgskKHlV1FO3Yb/DpCOVkINLNFWT0WInl6EES4RqCVEYatg/aq0P2PKU7QhFxwcn03OIuQc6/0Lumg==)"
+WebUI\Port=18181
+WebUI\SecureCookie=false
+
+[RSS]
+AutoDownloader\DownloadRepacks=true
+AutoDownloader\SmartEpisodeFilter=s(\\d+)e(\\d+), (\\d+)x(\\d+), "(\\d{4}[.\\-]\\d{1,2}[.\\-]\\d{1,2})", "(\\d{1,2}[.\\-]\\d{1,2}[.\\-]\\d{4})"
 EOF
     elif [[ "${qb_ver}" =~ "4.2."|"4.3." ]]; then
         wget  https://raw.githubusercontent.com/ctfox66/Seedbox-Components/main/Torrent%20Clients/qBittorrent/$arch/qb_password_gen -O $HOME/qb_password_gen && chmod +x $HOME/qb_password_gen
