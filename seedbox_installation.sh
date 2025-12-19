@@ -56,36 +56,75 @@ seperator() {
 
 ## System Update and Install Dependencies
 update() {
-    apt-get -qqy update 
-    # Install Dependencies
-	if [ -z $(which sudo) ]; then
-		apt-get install sudo -qqy
-		if [ $? -ne 0 ]; then
-			fail_exit "Sudo Installation Failed"
+	# Detect OS and use appropriate package manager
+	if [ -f /etc/alpine-release ]; then
+		# Alpine Linux
+		apk update
+		apk upgrade
+		# Install Dependencies
+		if [ -z $(which sudo) ]; then
+			apk add sudo
+			if [ $? -ne 0 ]; then
+				fail_exit "Sudo Installation Failed"
+			fi
 		fi
-	fi
-	if [ -z $(which wget) ]; then
-		apt-get install wget -qqy
-		if [ $? -ne 0 ]; then
-			fail_exit "Wget Installation Failed"
+		if [ -z $(which wget) ]; then
+			apk add wget
+			if [ $? -ne 0 ]; then
+				fail_exit "Wget Installation Failed"
+			fi
 		fi
-	fi
-	if [ -z $(which curl) ]; then
-		apt-get install curl -qqy
-		if [ $? -ne 0 ]; then
-			fail_exit "Curl Installation Failed"
+		if [ -z $(which curl) ]; then
+			apk add curl
+			if [ $? -ne 0 ]; then
+				fail_exit "Curl Installation Failed"
+			fi
 		fi
-	fi
-	if [ -z $(which sysstat) ]; then
-		apt-get install sysstat -qqy
-		if [ $? -ne 0 ]; then
-			fail_exit "Sysstat Installation Failed"
+		if [ -z $(which iostat) ]; then
+			apk add sysstat
+			if [ $? -ne 0 ]; then
+				fail_exit "Sysstat Installation Failed"
+			fi
 		fi
-	fi
-	if [ -z $(which psmisc) ]; then
-		apt-get install psmisc -qqy
-		if [ $? -ne 0 ]; then
-			fail_exit "Psmisc Installation Failed"
+		if [ -z $(which pstree) ]; then
+			apk add psmisc
+			if [ $? -ne 0 ]; then
+				fail_exit "Psmisc Installation Failed"
+			fi
+		fi
+	else
+		# Debian/Ubuntu
+		apt-get -qqy update 
+		# Install Dependencies
+		if [ -z $(which sudo) ]; then
+			apt-get install sudo -qqy
+			if [ $? -ne 0 ]; then
+				fail_exit "Sudo Installation Failed"
+			fi
+		fi
+		if [ -z $(which wget) ]; then
+			apt-get install wget -qqy
+			if [ $? -ne 0 ]; then
+				fail_exit "Wget Installation Failed"
+			fi
+		fi
+		if [ -z $(which curl) ]; then
+			apt-get install curl -qqy
+			if [ $? -ne 0 ]; then
+				fail_exit "Curl Installation Failed"
+			fi
+		fi
+		if [ -z $(which sysstat) ]; then
+			apt-get install sysstat -qqy
+			if [ $? -ne 0 ]; then
+				fail_exit "Sysstat Installation Failed"
+			fi
+		fi
+		if [ -z $(which psmisc) ]; then
+			apt-get install psmisc -qqy
+			if [ $? -ne 0 ]; then
+				fail_exit "Psmisc Installation Failed"
+			fi
 		fi
 	fi
 	return 0
@@ -194,8 +233,28 @@ sessionSecret = "$secret_session_key"
 EOF
 	chown -R $username /home/$username/.config/autobrr
 	# Create AutoBrr service
-	touch /etc/systemd/system/autobrr@.service
-	cat << EOF >/etc/systemd/system/autobrr@.service
+	if [ -f /etc/alpine-release ]; then
+		# Alpine Linux uses OpenRC
+		touch /etc/init.d/autobrr.$username
+		cat << EOF >/etc/init.d/autobrr.$username
+#!/sbin/openrc-run
+
+description="autobrr service for $username"
+command="/usr/bin/autobrr"
+command_args="--config=/home/$username/.config/autobrr/"
+command_user="$username:$username"
+depend() {
+	need net
+	after network
+}
+EOF
+		chmod +x /etc/init.d/autobrr.$username
+		rc-update add autobrr.$username default
+		/etc/init.d/autobrr.$username start
+	else
+		# Other distributions use systemd
+		touch /etc/systemd/system/autobrr@.service
+		cat << EOF >/etc/systemd/system/autobrr@.service
 [Unit]
 Description=autobrr service
 After=syslog.target network-online.target
@@ -209,9 +268,10 @@ ExecStart=/usr/bin/autobrr --config=/home/$username/.config/autobrr/
 [Install]
 WantedBy=multi-user.target
 EOF
-	# Enable and start AutoBrr
-	systemctl enable autobrr@$username
-	systemctl start autobrr@$username
+		# Enable and start AutoBrr
+		systemctl enable autobrr@$username
+		systemctl start autobrr@$username
+	fi
 	# Clean up
 	rm autobrr*.tar.gz
 	
@@ -256,20 +316,35 @@ install_vertex_() {
 		fi
 	fi
 	## Install Vertex
-	if [ -z $(which apparmor) ]; then
-		apt-get -y install apparmor
-		#Check if install is successful
-		if [ $? -ne 0 ]; then
-			fail "Apparmor Installation Failed"
-			return 1
+	if [ -f /etc/alpine-release ]; then
+		# Alpine Linux - install Docker and dependencies
+		if [ -z $(which docker) ]; then
+			apk add docker docker-compose
+			if [ $? -ne 0 ]; then
+				fail "Docker Installation Failed"
+				return 1
+			fi
+			# Start Docker service
+			rc-update add docker boot
+			service docker start
 		fi
-	fi
-	if [ -z $(which apparmor-utils) ]; then
-		apt-get -y install apparmor-utils
-		#Check if install is successful
-		if [ $? -ne 0 ]; then
-			fail "Apparmor-utils Installation Failed"
-			return 1
+	else
+		# Other distributions - apparmor dependencies
+		if [ -z $(which apparmor) ]; then
+			apt-get -y install apparmor
+			#Check if install is successful
+			if [ $? -ne 0 ]; then
+				fail "Apparmor Installation Failed"
+				return 1
+			fi
+		fi
+		if [ -z $(which apparmor-utils) ]; then
+			apt-get -y install apparmor-utils
+			#Check if install is successful
+			if [ $? -ne 0 ]; then
+				fail "Apparmor-utils Installation Failed"
+				return 1
+			fi
 		fi
 	fi
 	timedatectl set-timezone Asia/Shanghai
@@ -325,28 +400,44 @@ install_autoremove-torrents_() {
 		return 1
 	fi
 	## Install Autoremove-torrents
-	if [ -z $(which pipx) ]; then
-		apt-get install pipx -y
-		#Check if install is successful
+	if [ -f /etc/alpine-release ]; then
+		# Alpine Linux
+		if [ -z $(which python3) ]; then
+			apk add python3 py3-pip
+		fi
+		if [ -z $(which pip) ]; then
+			apk add py3-pip
+		fi
+		pip install autoremove-torrents
 		if [ $? -ne 0 ]; then
-			fail "Pipx Installation Failed"
-			#Alternative method
-			apt-get -qqy install python3-distutils python3-apt
-			[[ $(pip --version) ]] || (apt-get -qqy install curl && curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py && python3 get-pip.py && rm get-pip.py )
-			pip -q install autoremove-torrents
-			# Check if installation fail
+			fail "Autoremove-torrents installation failed"
+			return 1
+		fi
+	else
+		# Other distributions
+		if [ -z $(which pipx) ]; then
+			apt-get install pipx -y
+			#Check if install is successful
 			if [ $? -ne 0 ]; then
-				fail "Autoremove-torrents installation failed"
-				return 1
+				fail "Pipx Installation Failed"
+				#Alternative method
+				apt-get -qqy install python3-distutils python3-apt
+				[[ $(pip --version) ]] || (apt-get -qqy install curl && curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py && python3 get-pip.py && rm get-pip.py )
+				pip -q install autoremove-torrents
+				# Check if installation fail
+				if [ $? -ne 0 ]; then
+					fail "Autoremove-torrents installation failed"
+					return 1
+				fi
+			else
+				su $username -s /bin/sh -c "pipx install autoremove-torrents"
+				# Check if installation fail
+				if [ $? -ne 0 ]; then
+					fail "Autoremove-torrents installation failed"
+					return 1
+				fi
+				su user -s /bin/sh -c "pipx ensurepath"
 			fi
-		else
-			su $username -s /bin/sh -c "pipx install autoremove-torrents"
-			# Check if installation fail
-			if [ $? -ne 0 ]; then
-				fail "Autoremove-torrents installation failed"
-				return 1
-			fi
-			su user -s /bin/sh -c "pipx ensurepath"
 		fi
 	fi
 	
@@ -378,8 +469,27 @@ done
 EOF
 	chmod +x /home/$username/.autoremove-torrents/autoremove-torrents.sh
 	# Create Autoremove-torrents service
-	touch /etc/systemd/system/autoremove-torrents@.service
-	cat << EOF >/etc/systemd/system/autoremove-torrents@.service
+	if [ -f /etc/alpine-release ]; then
+		# Alpine Linux uses OpenRC
+		touch /etc/init.d/autoremove-torrents.$username
+		cat << EOF >/etc/init.d/autoremove-torrents.$username
+#!/sbin/openrc-run
+
+description="autoremove-torrents service for $username"
+command="/home/$username/.autoremove-torrents/autoremove-torrents.sh"
+command_user="$username:$username"
+depend() {
+	need net
+	after network
+}
+EOF
+		chmod +x /etc/init.d/autoremove-torrents.$username
+		rc-update add autoremove-torrents.$username default
+		/etc/init.d/autoremove-torrents.$username start
+	else
+		# Other distributions use systemd
+		touch /etc/systemd/system/autoremove-torrents@.service
+		cat << EOF >/etc/systemd/system/autoremove-torrents@.service
 [Unit]
 Description=autoremove-torrents service
 After=syslog.target network-online.target
@@ -393,9 +503,10 @@ ExecStart=/home/$username/.autoremove-torrents/autoremove-torrents.sh
 [Install]
 WantedBy=multi-user.target
 EOF
-	# Enable and start Autoremove-torrents
-	systemctl enable autoremove-torrents@$username
-	systemctl start autoremove-torrents@$username
+		# Enable and start Autoremove-torrents
+		systemctl enable autoremove-torrents@$username
+		systemctl start autoremove-torrents@$username
+	fi
 	return 0
 }
 
@@ -403,7 +514,12 @@ EOF
 
 # Tuned
 tuned_() {
-    if [ -z $(which tuned) ]; then
+	if [ -f /etc/alpine-release ]; then
+		# Alpine Linux - skip tuned as it's not available
+		info "Tuned not available on Alpine Linux, skipping"
+		return 0
+	fi
+	if [ -z $(which tuned) ]; then
 		apt-get -qqy install tuned
 		#Check if install is successful
 		if [ $? -ne 0 ]; then
@@ -418,7 +534,11 @@ tuned_() {
 set_ring_buffer_() {
     interface=$(ip -o -4 route show to default | awk '{print $5}')
 	if [ -z $(which ethtool) ]; then
-		apt-get -y install ethtool
+		if [ -f /etc/alpine-release ]; then
+			apk add ethtool
+		else
+			apt-get -y install ethtool
+		fi
 		if [ $? -ne 0 ]; then
 			fail "Ethtool Installation Failed"
 			return 1
@@ -440,7 +560,11 @@ set_ring_buffer_() {
 set_txqueuelen_() {
 	interface=$(ip -o -4 route show to default | awk '{print $5}')
 	if [ -z $(which net-tools) ]; then
-		apt-get -y install net-tools
+		if [ -f /etc/alpine-release ]; then
+			apk add net-tools
+		else
+			apt-get -y install net-tools
+		fi
 		if [ $? -ne 0 ]; then
 			fail "net-tools Installation Failed"
 			return 1
@@ -456,7 +580,11 @@ set_initial_congestion_window_() {
 disable_tso_() {
 	interface=$(ip -o -4 route show to default | awk '{print $5}')
 	if [ -z $(which ethtool) ]; then
-		apt-get -y install ethtool
+		if [ -f /etc/alpine-release ]; then
+			apk add ethtool
+		else
+			apt-get -y install ethtool
+		fi
 		if [ $? -ne 0 ]; then
 			fail "Ethtool Installation Failed"
 			return 1
@@ -939,7 +1067,20 @@ install_bbrx_() {
 			VER=$(uname -r)
 		fi
 	fi
-	if [[ "$OS" =~ "Debian" ]]; then
+	if [ -f /etc/alpine-release ]; then
+		# Alpine Linux - BBR is typically already enabled in kernel
+		info "BBR is typically enabled by default on Alpine Linux"
+		# Check if BBR is available and enable it
+		if sysctl net.ipv4.tcp_available_congestion_control | grep -q bbr; then
+			echo 'net.core.default_qdisc = fq' >> /etc/sysctl.conf
+			echo 'net.ipv4.tcp_congestion_control = bbr' >> /etc/sysctl.conf
+			sysctl -p
+			info "BBR enabled successfully"
+		else
+			warn "BBR not available in this Alpine kernel"
+		fi
+		return 0
+	elif [[ "$OS" =~ "Debian" ]]; then
 		if [ $(uname -m) == "x86_64" ]; then
 			apt-get -y install linux-image-amd64 linux-headers-amd64
 			if [ $? -ne 0 ]; then
@@ -970,7 +1111,14 @@ install_bbrx_() {
 		return 1
 	fi
     ## Install tweaked BBR automatically on reboot
-    cat << EOF > /etc/systemd/system/bbrinstall.service
+    if [ -f /etc/alpine-release ]; then
+    	# Alpine Linux - skip automatic BBR installation service
+    	info "Skipping automatic BBR installation service on Alpine Linux"
+    	# Just run the script directly if needed
+    	chmod +x /root/BBRx.sh
+    else
+    	# Other distributions use systemd
+    	cat << EOF > /etc/systemd/system/bbrinstall.service
 [Unit]
 Description=BBRinstall
 After=network.target
@@ -983,7 +1131,8 @@ RemainAfterExit=true
 [Install]
 WantedBy=multi-user.target
 EOF
-    systemctl enable bbrinstall.service
+    	systemctl enable bbrinstall.service
+    fi
 	return 0
 }
 

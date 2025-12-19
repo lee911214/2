@@ -190,6 +190,27 @@ install_qBittorrent_(){
 	qb_port=$6
 	qb_incoming_port=$7
 
+	## Install dependencies for Alpine Linux if needed
+	if [ -f /etc/alpine-release ]; then
+		# Install required packages for Alpine
+		apk add --no-cache wget ca-certificates
+		if [ $? -ne 0 ]; then
+			warn "Failed to install dependencies for Alpine Linux"
+			return 1
+		fi
+		# Check if user exists
+		if ! id "$username" &>/dev/null; then
+			warn "User $username does not exist"
+			return 1
+		fi
+	else
+		# For non-Alpine systems, check if user exists
+		if ! id "$username" &>/dev/null; then
+			warn "User $username does not exist"
+			return 1
+		fi
+	fi
+
 	## Check if qBittorrent is running
 	if pgrep -i -f qbittorrent; then
 		warn "qBittorrent is running. Stopping it now..."
@@ -229,13 +250,54 @@ install_qBittorrent_(){
 	mkdir -p /home/$username/qbittorrent/Downloads && chown -R $username:$username /home/$username/qbittorrent/
     mkdir -p /home/$username/.config/qBittorrent && chown $username:$username /home/$username/.config/qBittorrent
 
-	# Create systemd services
-	if test -e /etc/systemd/system/qbittorrent-nox@.service; then
-		warn "qBittorrent systemd services already exist. Removing it now..."
-		rm /etc/systemd/system/qbittorrent-nox@.service
+	# Create service (Alpine Linux uses OpenRC, others use systemd)
+	if [ -f /etc/alpine-release ]; then
+		# Alpine Linux - OpenRC service
+		if test -e /etc/init.d/qbittorrent-nox.$username; then
+			warn "qBittorrent OpenRC service already exist. Removing it now..."
+			rm /etc/init.d/qbittorrent-nox.$username
+		fi
+		touch /etc/init.d/qbittorrent-nox.$username
+		cat << EOF >/etc/init.d/qbittorrent-nox.$username
+#!/sbin/openrc-run
+
+description="qBittorrent service for $username"
+command="/usr/bin/qbittorrent-nox"
+command_user="$username:$username"
+command_background=true
+pidfile="/run/qbittorrent-nox.$username.pid"
+command_args="--webui-port=$qb_port"
+depend() {
+	need net
+	after network
+}
+
+start_pre() {
+	checkpath -d -o $username:$username -m 0755 /run
+	checkpath -f -o $username:$username -m 0644 /run/qbittorrent-nox.$username.pid
+}
+
+stop() {
+	ebegin "Stopping qBittorrent for $username"
+	if [ -f "$pidfile" ]; then
+		kill -TERM $(cat "$pidfile") 2>/dev/null
+		sleep 2
+		kill -KILL $(cat "$pidfile") 2>/dev/null
 	fi
-	touch /etc/systemd/system/qbittorrent-nox@.service
-	cat << EOF >/etc/systemd/system/qbittorrent-nox@.service
+	eend $?
+}
+EOF
+		chmod +x /etc/init.d/qbittorrent-nox.$username
+		rc-update add qbittorrent-nox.$username default
+		/etc/init.d/qbittorrent-nox.$username start
+	else
+		# Other distributions - systemd service
+		if test -e /etc/systemd/system/qbittorrent-nox@.service; then
+			warn "qBittorrent systemd services already exist. Removing it now..."
+			rm /etc/systemd/system/qbittorrent-nox@.service
+		fi
+		touch /etc/systemd/system/qbittorrent-nox@.service
+		cat << EOF >/etc/systemd/system/qbittorrent-nox@.service
 [Unit]
 Description=qBittorrent
 After=network.target
@@ -253,37 +315,76 @@ RestartSec=10
 [Install]
 WantedBy=multi-user.target
 EOF
-    systemctl enable qbittorrent-nox@$username
-    systemctl start qbittorrent-nox@$username
+		systemctl enable qbittorrent-nox@$username
+		systemctl start qbittorrent-nox@$username
+	fi
 
 	## Configure qBittorrent
 	# Check for Virtual Environment since some of the tunning might not work on virtual machine
-	systemd-detect-virt > /dev/null
-	if [ $? -eq 0 ]; then
-		warn "Virtualization is detected, skipping some of the tunning"
-		aio=8
-		low_buffer=3072
-		buffer=15360
-		buffer_factor=200
-	else
-		#Determine if it is a SSD or a HDD
-		disk_name=$(printf $(lsblk | grep -m1 'disk' | awk '{print $1}'))
-		disktype=$(cat /sys/block/$disk_name/queue/rotational)
-		if [ "${disktype}" == 0 ]; then
-			aio=12
-			low_buffer=5120
-			buffer=20480
-			buffer_factor=250
-		else
-			aio=4
+	if [ -f /etc/alpine-release ]; then
+		# Alpine Linux - use different virtualization detection
+		if [ -f /proc/1/cgroup ] && grep -q docker /proc/1/cgroup 2>/dev/null; then
+			warn "Virtualization is detected, skipping some of the tunning"
+			aio=8
 			low_buffer=3072
-			buffer=10240
-			buffer_factor=150
+			buffer=15360
+			buffer_factor=200
+		elif [ -f /proc/cpuinfo ] && grep -q hypervisor /proc/cpuinfo 2>/dev/null; then
+			warn "Virtualization is detected, skipping some of the tunning"
+			aio=8
+			low_buffer=3072
+			buffer=15360
+			buffer_factor=200
+		else
+			#Determine if it is a SSD or a HDD
+			disk_name=$(printf $(lsblk | grep -m1 'disk' | awk '{print $1}'))
+			disktype=$(cat /sys/block/$disk_name/queue/rotational)
+			if [ "${disktype}" == 0 ]; then
+				aio=12
+				low_buffer=5120
+				buffer=20480
+				buffer_factor=250
+			else
+				aio=4
+				low_buffer=3072
+				buffer=10240
+				buffer_factor=150
+			fi
+		fi
+	else
+		# Other distributions - use systemd-detect-virt
+		systemd-detect-virt > /dev/null
+		if [ $? -eq 0 ]; then
+			warn "Virtualization is detected, skipping some of the tunning"
+			aio=8
+			low_buffer=3072
+			buffer=15360
+			buffer_factor=200
+		else
+			#Determine if it is a SSD or a HDD
+			disk_name=$(printf $(lsblk | grep -m1 'disk' | awk '{print $1}'))
+			disktype=$(cat /sys/block/$disk_name/queue/rotational)
+			if [ "${disktype}" == 0 ]; then
+				aio=12
+				low_buffer=5120
+				buffer=20480
+				buffer_factor=250
+			else
+				aio=4
+				low_buffer=3072
+				buffer=10240
+				buffer_factor=150
+			fi
 		fi
 	fi
 
 	# Editing qBittorrent settings
-    systemctl stop qbittorrent-nox@$username
+    # Stop service based on OS
+    if [ -f /etc/alpine-release ]; then
+        /etc/init.d/qbittorrent-nox.$username stop 2>/dev/null || true
+    else
+        systemctl stop qbittorrent-nox@$username 2>/dev/null || true
+    fi
 
     if [[ "${qb_ver}" =~ "5.1." ]]; then
         md5password=$(echo -n $password | md5sum | awk '{print $1}')
@@ -355,7 +456,11 @@ EOF
 			rm -r /home/$username/qbittorrent/Downloads
 			rm -r /home/$username/.config/qBittorrent
 			rm /usr/bin/qbittorrent-nox
-			rm /etc/systemd/system/qbittorrent-nox@.service
+			if [ -f /etc/alpine-release ]; then
+				rm -f /etc/init.d/qbittorrent-nox.$username
+			else
+				rm -f /etc/systemd/system/qbittorrent-nox@.service
+			fi
 			return 1
 		fi
 		PBKDF2password=$($HOME/qb_password_gen $password)
@@ -391,7 +496,11 @@ EOF
 			rm -r /home/$username/qbittorrent/Downloads
 			rm -r /home/$username/.config/qBittorrent
 			rm /usr/bin/qbittorrent-nox
-			rm /etc/systemd/system/qbittorrent-nox@.service
+			if [ -f /etc/alpine-release ]; then
+				rm -f /etc/init.d/qbittorrent-nox.$username
+			else
+				rm -f /etc/systemd/system/qbittorrent-nox@.service
+			fi
 			return 1
 		fi
 		PBKDF2password=$($HOME/qb_password_gen $password)
@@ -422,7 +531,12 @@ WebUI\Username=$username
 EOF
     rm qb_password_gen
     fi
-    systemctl start qbittorrent-nox@$username
+    # Start service based on OS
+    if [ -f /etc/alpine-release ]; then
+        /etc/init.d/qbittorrent-nox.$username start
+    else
+        systemctl start qbittorrent-nox@$username
+    fi
 }
 
 return 0
