@@ -399,7 +399,8 @@ FileLogger\MaxSizeBytes=66560
 
 [BitTorrent]
 Session\AsyncIOThreadsCount=$aio
-Session\ConnectionSpeed=9000
+Session\ConnectionSpeed=900
+Session\DHTEnabled=false
 Session\DiskQueueSize=10485760
 Session\ExcludedFileNames=
 Session\FilePoolSize=10000
@@ -410,6 +411,7 @@ Session\MaxUploadsPerTorrent=4000
 Session\PeerTurnover=0
 Session\PeerTurnoverCutOff=30
 Session\PeerTurnoverInterval=30
+Session\MultiConnectionsPerIp=true
 Session\Port=$qb_incoming_port
 Session\QueueingSystemEnabled=false
 Session\RequestQueueSize=5000
